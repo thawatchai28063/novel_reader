@@ -1,0 +1,48 @@
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/coverage/
+
+# IDE / local machine
+**/.idea/
+*.iml
+.vscode/
+
+# PHP / local runtime
+vendor/
+composer.lock
+
+# Python / OCR cache
+__pycache__/
+*.py[cod]
+.venv/
+pydeps/
+pythainlp-data/
+tessdata/
+tessdata_best/
+
+# Generated OCR and import artifacts
+ocr_work/
+ocr_test/
+ocr_cmdtest/
+exports/
+*.pdf
+pdf_extract_debug.txt
+spell_test.txt
+run_ocr.cmd
+
+# Local screenshots / temporary verification images
+/app_cover_check*.png
+/db_cover_check.png
+/lotm_check_*.png
+/nav_check*.png
+/nav_reader*.png
+/ocr_page_*.png
+/cover_from_pdf.jpg
+
+# Secrets and local config variants
+.env
+*.local.php
