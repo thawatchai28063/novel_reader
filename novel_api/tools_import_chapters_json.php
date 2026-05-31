@@ -24,19 +24,25 @@ if (!is_array($payload) || !isset($payload['chapters']) || !is_array($payload['c
 
 $title = trim((string) ($payload['title'] ?? 'นิยายไม่มีชื่อ'));
 $sourceName = trim((string) ($payload['source_name'] ?? basename($jsonPath)));
+$coverPath = trim((string) ($payload['cover_path'] ?? ''));
 $chapters = $payload['chapters'];
 $db = pdo();
 $db->beginTransaction();
 
 try {
     if ($novelId > 0) {
-        $stmt = $db->prepare('UPDATE novels SET title = ?, source_name = ? WHERE id = ?');
-        $stmt->execute([$title, $sourceName, $novelId]);
+        if ($coverPath !== '') {
+            $stmt = $db->prepare('UPDATE novels SET title = ?, source_name = ?, cover_path = ? WHERE id = ?');
+            $stmt->execute([$title, $sourceName, $coverPath, $novelId]);
+        } else {
+            $stmt = $db->prepare('UPDATE novels SET title = ?, source_name = ? WHERE id = ?');
+            $stmt->execute([$title, $sourceName, $novelId]);
+        }
         $stmt = $db->prepare('DELETE FROM chapters WHERE novel_id = ?');
         $stmt->execute([$novelId]);
     } else {
-        $stmt = $db->prepare('INSERT INTO novels (title, source_name) VALUES (?, ?)');
-        $stmt->execute([$title, $sourceName]);
+        $stmt = $db->prepare('INSERT INTO novels (title, source_name, cover_path) VALUES (?, ?, ?)');
+        $stmt->execute([$title, $sourceName, $coverPath !== '' ? $coverPath : null]);
         $novelId = (int) $db->lastInsertId();
     }
 
