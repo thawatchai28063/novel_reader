@@ -20,6 +20,7 @@ __pycache__/
 *.py[cod]
 .venv/
 pydeps/
+pydeps_typhoon/
 pythainlp-data/
 tessdata/
 tessdata_best/
