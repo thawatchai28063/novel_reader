@@ -11,7 +11,18 @@ from pypdf import PdfReader
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PDF = Path.home() / "Downloads" / "God and Devil World (เชือดซอมบี้พิชิตฮาเร็ม) 1 - 1217 end.pdf"
 
-HEADING_RE = re.compile(r"^\s*บทที่\s*([0-9]{1,4})\s*[:：\-–—]?\s*(.*)$")
+HEADING_RES = [
+    re.compile(r"^\s*บทที่\s*([0-9][0-9,]{0,4})\s*[:：\-–—]?\s*(.*)$"),
+    re.compile(r"^\s*บทที\s*([0-9][0-9,]{0,4})\s*[:：\-–—]?\s*(.*)$"),
+    re.compile(r"^\s*Chapter\s*([0-9][0-9,]{0,4})\s*[:：\-–—]?\s*(.*)$", re.IGNORECASE),
+    re.compile(r"^\s*ตอนที่\s*([0-9][0-9,]{0,4})\s*[:：\-–—]?\s*(.*)$"),
+    re.compile(r"^\s*ตอนที\s*([0-9][0-9,]{0,4})\s*[:：\-–—]?\s*(.*)$"),
+    re.compile(r"^\s*อนที่\s*([0-9][0-9,]{0,4})\s*[:：\-–—]?\s*(.*)$"),
+    re.compile(r"^\s*เชือด\s*(?:ซอมบี|ซอมบี่|ซอมบ)?\s*([0-9][0-9,]{0,4})\s*(?:-[0-9][0-9,]{0,4})?\s*[:：\-–—]?\s*(.*)$"),
+    re.compile(r"^\s*เชือด\s*บทที่\s*([0-9][0-9,]{0,4})\s*[:：\-–—]?\s*(.*)$"),
+]
+PAGE_NUMBER_HEADING_RE = re.compile(r"^\s*([0-9][0-9,]{0,4})\s*(?:([:：\-–—])\s*(.*)|\s+(.*))?$")
+WEIRD_FIVE_DIGIT_TON_RE = re.compile(r"^\s*ตอนที่\s*1([0-9]{4})\s*[:：\-–—]?\s*(.*)$")
 THAI_TOKEN_RE = re.compile(r"[\w\u0e00-\u0e7f]+", re.UNICODE)
 
 
@@ -19,8 +30,12 @@ def count_words(text: str) -> int:
     return len(THAI_TOKEN_RE.findall(text))
 
 
+def parse_chapter_no(value: str) -> int:
+    return int(value.replace(",", ""))
+
+
 def normalize_text(text: str) -> str:
-    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ").replace("\x00", "")
     text = text.replace("ต ่า", "ต่ำ")
     text = text.replace("ต ้า", "ต้ำ")
     text = text.replace("ป่ า", "ป่า")
@@ -90,6 +105,39 @@ def format_content(lines: list[str]) -> str:
     return "\n\n".join(paragraph for paragraph in paragraphs if paragraph).strip()
 
 
+def parse_heading(
+    line: str,
+    *,
+    is_page_first_line: bool,
+    current_no: int | None,
+) -> tuple[int, str, str] | None:
+    weird_ton = WEIRD_FIVE_DIGIT_TON_RE.match(line)
+    if weird_ton and current_no is not None:
+        chapter_no = int(weird_ton.group(1))
+        if chapter_no == current_no + 1:
+            return chapter_no, weird_ton.group(2).strip(" :-–—"), ""
+
+    for heading_re in HEADING_RES:
+        match = heading_re.match(line)
+        if match:
+            return parse_chapter_no(match.group(1)), match.group(2).strip(" :-–—"), ""
+
+    # Some later chapters start a new PDF page with only "801" or
+    # "801 <first sentence>" instead of a normal "บทที่" heading.
+    if is_page_first_line:
+        match = PAGE_NUMBER_HEADING_RE.match(line)
+        if match:
+            chapter_no = parse_chapter_no(match.group(1))
+            if current_no is None or chapter_no == current_no + 1:
+                separator = match.group(2)
+                after_number = (match.group(3) or match.group(4) or "").strip()
+                if separator or count_words(after_number) <= 8:
+                    return chapter_no, after_number, ""
+                return chapter_no, "", after_number
+
+    return None
+
+
 def extract(pdf_path: Path, max_chapter: int) -> dict:
     reader = PdfReader(str(pdf_path))
     chapters: list[dict[str, object]] = []
@@ -120,20 +168,53 @@ def extract(pdf_path: Path, max_chapter: int) -> dict:
 
     for page_index, page in enumerate(reader.pages, start=1):
         text = normalize_text(page.extract_text() or "")
-        for raw_line in text.splitlines():
+        raw_lines = text.splitlines()
+        first_line_index = next((index for index, value in enumerate(raw_lines) if value.strip()), -1)
+        skip_lines = 0
+        for line_index, raw_line in enumerate(raw_lines):
+            if skip_lines:
+                skip_lines -= 1
+                continue
             line = raw_line.strip()
-            match = HEADING_RE.match(line)
-            if match:
-                chapter_no = int(match.group(1))
+            if re.fullmatch(r"บทที", line):
+                next_line = raw_lines[line_index + 1].strip() if line_index + 1 < len(raw_lines) else ""
+                if re.fullmatch(r"[0-9][0-9,]{0,4}", next_line):
+                    chapter_no = parse_chapter_no(next_line)
+                    title = ""
+                    skip_lines = 1
+                    maybe_separator = raw_lines[line_index + 2].strip() if line_index + 2 < len(raw_lines) else ""
+                    maybe_title = raw_lines[line_index + 3].strip() if line_index + 3 < len(raw_lines) else ""
+                    if maybe_separator in {":", "：", "-", "–", "—"} and maybe_title:
+                        title = maybe_title
+                        skip_lines = 3
+                    heading = (chapter_no, title, "")
+                else:
+                    heading = None
+            elif (
+                re.fullmatch(r"[0-9][0-9,]{0,4}", line)
+                and current_no is not None
+                and parse_chapter_no(line) == current_no + 1
+            ):
+                heading = (parse_chapter_no(line), "", "")
+            else:
+                heading = None
+            if heading is None:
+                heading = parse_heading(
+                    line,
+                    is_page_first_line=line_index == first_line_index,
+                    current_no=current_no,
+                )
+            if heading:
+                chapter_no, title, first_content = heading
                 if chapter_no > max_chapter:
                     flush()
                     return build_payload(pdf_path, chapters, max_chapter)
                 if 1 <= chapter_no <= max_chapter:
                     flush()
                     current_no = chapter_no
-                    current_title = match.group(2).strip(" :-–—") or f"บทที่ {chapter_no}"
+                    current_title = title or f"บทที่ {chapter_no}"
                     current_page = page_index
-                    current_lines = []
+                    current_lines = [first_content] if first_content else []
                     continue
             if current_no is not None:
                 current_lines.append(line)
@@ -143,12 +224,32 @@ def extract(pdf_path: Path, max_chapter: int) -> dict:
 
 
 def build_payload(pdf_path: Path, chapters: list[dict[str, object]], max_chapter: int) -> dict:
-    found = {int(chapter["chapter_no"]) for chapter in chapters}
+    chapters_by_number: dict[int, dict[str, object]] = {}
+    for chapter in chapters:
+        chapter_no = int(chapter["chapter_no"])
+        existing = chapters_by_number.get(chapter_no)
+        if existing is None or int(chapter["word_count"]) > int(existing["word_count"]):
+            chapters_by_number[chapter_no] = chapter
+
+    missing_chapters = [number for number in range(1, max_chapter + 1) if number not in chapters_by_number]
+    for chapter_no in missing_chapters:
+        content = (
+            "ไม่พบเนื้อหาตอนนี้ในไฟล์ PDF ต้นฉบับ หรือหัวตอนในไฟล์เสียหายจนแยกออกมาไม่ได้"
+        )
+        chapters_by_number[chapter_no] = {
+            "chapter_no": chapter_no,
+            "title": f"บทที่ {chapter_no}",
+            "content": content,
+            "word_count": count_words(content),
+            "source_file": pdf_path.name,
+            "start_page": None,
+        }
+
     return {
         "title": "God and Devil World (เชือดซอมบี้พิชิตฮาเร็ม)",
         "source_name": f"{pdf_path.name} chapters 1-{max_chapter}",
-        "chapters": chapters,
-        "missing_chapters": [number for number in range(1, max_chapter + 1) if number not in found],
+        "chapters": [chapters_by_number[number] for number in range(1, max_chapter + 1)],
+        "missing_chapters": missing_chapters,
     }
 
 
