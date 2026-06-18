@@ -20,6 +20,9 @@ __pycache__/
 *.py[cod]
 .venv/
 pydeps/
+pydeps_audio/
+pydeps_audio_local/
+pydeps_tts_fresh/
 pydeps_typhoon/
 pythainlp-data/
 tessdata/
@@ -30,6 +33,7 @@ ocr_work/
 ocr_test/
 ocr_cmdtest/
 exports/
+novel_api/audio/
 *.pdf
 pdf_extract_debug.txt
 spell_test.txt
